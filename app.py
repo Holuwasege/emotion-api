@@ -1,7 +1,3 @@
-# -------------------------------------------------------------
-# app.py — Multimodal Emotion Recognition API (Audio + Text)
-# -------------------------------------------------------------
-
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,9 +6,9 @@ import torchaudio
 import torch
 import io
 
-# -------------------------------------------------------------
+
 # Initialize FastAPI
-# -------------------------------------------------------------
+
 app = FastAPI(
     title="Emotion Recognition API",
     description="Detect emotions from Speech or Text",
@@ -27,9 +23,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------------------------------------------
+
 # Load Models Once
-# -------------------------------------------------------------
+
 print("Loading models...")
 
 speech_classifier = pipeline(
@@ -44,9 +40,9 @@ text_model = AutoModelForSequenceClassification.from_pretrained(
 
 print("Models loaded successfully.")
 
-# -------------------------------------------------------------
+
 # Main Endpoint
-# -------------------------------------------------------------
+
 @app.post("/predict")
 async def predict(
     file: UploadFile = File(None),
