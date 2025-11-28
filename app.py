@@ -1,86 +1,106 @@
+# -------------------------------------------------------------
+# app.py — Multimodal Emotion Recognition API (Audio + Text)
+# -------------------------------------------------------------
+
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import torchaudio
 import torch
 import io
-from typing import Optional
 
+# -------------------------------------------------------------
+# Initialize FastAPI
+# -------------------------------------------------------------
 app = FastAPI(
-    title="Multimodal Emotion Recognition API",
-    description="Detect emotions from speech or text using AI",
+    title="Emotion Recognition API",
+    description="Detect emotions from Speech or Text",
     version="1.0.0"
 )
 
+# Allow frontend everywhere
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Lazy-loading for low memory
-speech_model = None
-text_tokenizer = None
-text_model = None
+# -------------------------------------------------------------
+# Load Models Once
+# -------------------------------------------------------------
+print("Loading models...")
 
-def load_speech_model():
-    global speech_model
-    if speech_model is None:
-        speech_model = pipeline("audio-classification", model="superb/wav2vec2-base-superb-er")
-    return speech_model
+speech_classifier = pipeline(
+    "audio-classification",
+    model="superb/wav2vec2-base-superb-er"
+)
 
-def load_text_model():
-    global text_tokenizer, text_model
-    if text_model is None:
-        text_tokenizer = AutoTokenizer.from_pretrained("tae898/emoberta-base")
-        text_model = AutoModelForSequenceClassification.from_pretrained("tae898/emoberta-base")
-    return text_tokenizer, text_model
+text_tokenizer = AutoTokenizer.from_pretrained("tae898/emoberta-base")
+text_model = AutoModelForSequenceClassification.from_pretrained(
+    "tae898/emoberta-base"
+)
 
+print("Models loaded successfully.")
 
+# -------------------------------------------------------------
+# Main Endpoint
+# -------------------------------------------------------------
 @app.post("/predict")
 async def predict(
-    file: Optional[UploadFile] = File(None),
-    text: Optional[str] = Form(None)
+    file: UploadFile = File(None),
+    text: str = Form(None)
 ):
-    # Audio input
+    """
+    Provide:
+    - audio file (wav/mp3)
+    - OR text
+    """
+    # AUDIO MODE
     if file:
         try:
             audio_bytes = await file.read()
             waveform, sr = torchaudio.load(io.BytesIO(audio_bytes))
 
-            model = load_speech_model()
-            preds = model(waveform.squeeze().numpy(), sampling_rate=sr, top_k=3)
+            preds = speech_classifier(waveform.squeeze().numpy(), sampling_rate=sr)
+            return {
+                "mode": "audio",
+                "emotion": preds[0]["label"],
+                "top_predictions": preds
+            }
 
-            return {"mode": "audio", "emotion": preds[0]["label"], "top_predictions": preds}
         except Exception as e:
-            return JSONResponse({"error": f"Audio error: {e}"}, status_code=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
-    # Text input
-    if text:
+    # TEXT MODE
+    if text and text.strip():
         try:
-            tokenizer, model = load_text_model()
-            inputs = tokenizer(text, return_tensors="pt")
-
-            with torch.no_grad():
-                outputs = model(**inputs)
-
+            inputs = text_tokenizer(text, return_tensors="pt", truncation=True)
+            outputs = text_model(**inputs)
             probs = torch.nn.functional.softmax(outputs.logits, dim=1)
-            label_id = torch.argmax(probs).item()
-            emotion = model.config.id2label[label_id]
+
+            idx = torch.argmax(probs).item()
+            label = text_model.config.id2label[idx]
 
             return {
                 "mode": "text",
-                "emotion": emotion,
+                "emotion": label,
                 "probabilities": {
-                    model.config.id2label[i]: float(round(p, 4))
-                    for i, p in enumerate(probs[0].tolist())
+                    text_model.config.id2label[i]: float(probs[0][i])
+                    for i in range(len(probs[0]))
                 }
             }
+
         except Exception as e:
-            return JSONResponse({"error": f"Text error: {e}"}, status_code=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
-    return JSONResponse({"error": "No valid input. Provide text or audio."}, status_code=400)
+    # NOTHING PROVIDED
+    return JSONResponse(
+        {"error": "Provide audio or text."}, status_code=400
+    )
 
+
+@app.get("/")
+def home():
+    return {"message": "Emotion API is running!"}
