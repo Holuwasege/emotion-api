@@ -1,0 +1,6 @@
+fastapi==0.109.0
+uvicorn==0.29.0
+transformers==4.35.2
+torch==2.2.0+cpu
+jinja2
+requests
